@@ -141,4 +141,40 @@ contract ElGamalMultiplicative {
         );
         c2 = BigNum.modmul(BigNumber(m, false, BigNum.bitLength(m)), h_r, bn_p);
     }
+
+    /// @notice Decrypts a ciphertext using the private key x.
+    /// @dev Only works correctly for small primes where all numbers fit in 256 bits.
+    /// @param ct The ciphertext to decrypt.
+    /// @param x The private key as bytes.
+    /// @param pk The public key.
+    /// @return m The decrypted plaintext as a BigNumber.
+    function decrypt(
+        Ciphertext calldata ct,
+        bytes calldata x,
+        PublicKey calldata pk
+    ) external view returns (BigNumber memory m) {
+        // Prepare modulus and private key as BigNumber.
+        BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
+        BigNumber memory bn_x = BigNum.init(x, false);
+
+        // Compute h_r = (c1)^x mod p.
+        BigNumber memory h_r = BigNum.modexp(
+            BigNumber(ct.c1, false, BigNum.bitLength(ct.c1)),
+            bn_x,
+            bn_p
+        );
+        // Compute inverse of h_r using Fermat's little theorem (since p is prime):
+        // h_r^{-1} = h_r^(p-2) mod p.
+        BigNumber memory inv_h_r = BigNum.modexp(
+            h_r,
+            BigNum.sub(bn_p, BigNum.two()),
+            bn_p
+        );
+        // Then, m = c2 * inv_h_r mod p.
+        m = BigNum.modmul(
+            BigNumber(ct.c2, false, BigNum.bitLength(ct.c2)),
+            inv_h_r,
+            bn_p
+        );
+    }
 }

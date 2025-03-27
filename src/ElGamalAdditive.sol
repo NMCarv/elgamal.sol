@@ -23,44 +23,6 @@ struct PublicKey {
 contract ElGamalAdditive {
     using BigNum for *;
 
-    /// @notice Encrypts a plaintext value using the public key
-    /// @dev Computes c1 = g^r mod p, c2 = g^m * h^r mod p
-    /// @param m Plaintext value to encrypt
-    /// @param r Randomness as bytes
-    /// @param pk Public key
-    /// @return c1 The encrypted ciphertext first component
-    /// @return c2 The encrypted ciphertext second component
-    function encrypt(
-        bytes memory m,
-        bytes memory r,
-        PublicKey calldata pk
-    ) external view returns (BigNumber memory c1, BigNumber memory c2) {
-        BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
-
-        BigNumber memory bn_r = BigNumber(r, false, BigNum.bitLength(r));
-        BigNumber memory bn_m = BigNumber(m, false, BigNum.bitLength(m));
-
-        // c1 = g^r mod p
-        c1 = BigNum.modexp(
-            BigNumber(pk.g, false, BigNum.bitLength(pk.g)),
-            bn_r,
-            bn_p
-        );
-
-        // c2 = g^m * h^r mod p
-        BigNumber memory g_m = BigNum.modexp(
-            BigNumber(pk.g, false, BigNum.bitLength(pk.g)),
-            bn_m,
-            bn_p
-        );
-        BigNumber memory h_r = BigNum.modexp(
-            BigNumber(pk.h, false, BigNum.bitLength(pk.h)),
-            bn_r,
-            bn_p
-        );
-        c2 = BigNum.modmul(g_m, h_r, bn_p);
-    }
-
     /// @notice Adds two encrypted values homomorphically
     /// @dev For additive ElGamal: (c1, c2) + (c1', c2') = (c1 * c1' mod p, c2 * c2' mod p)
     /// @param ct1 First ciphertext
@@ -212,6 +174,113 @@ contract ElGamalAdditive {
         );
     }
 
+    /// @notice Encrypts a plaintext value using the public key
+    /// @dev Computes c1 = g^r mod p, c2 = g^m * h^r mod p
+    /// @param m Plaintext value to encrypt
+    /// @param r Randomness as bytes
+    /// @param pk Public key
+    /// @return c1 The encrypted ciphertext first component
+    /// @return c2 The encrypted ciphertext second component
+    function encrypt(
+        bytes memory m,
+        bytes memory r,
+        PublicKey calldata pk
+    ) external view returns (BigNumber memory c1, BigNumber memory c2) {
+        BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
+
+        BigNumber memory bn_r = BigNumber(r, false, BigNum.bitLength(r));
+        BigNumber memory bn_m = BigNumber(m, false, BigNum.bitLength(m));
+
+        // c1 = g^r mod p
+        c1 = BigNum.modexp(
+            BigNumber(pk.g, false, BigNum.bitLength(pk.g)),
+            bn_r,
+            bn_p
+        );
+
+        // c2 = g^m * h^r mod p
+        BigNumber memory g_m = BigNum.modexp(
+            BigNumber(pk.g, false, BigNum.bitLength(pk.g)),
+            bn_m,
+            bn_p
+        );
+        BigNumber memory h_r = BigNum.modexp(
+            BigNumber(pk.h, false, BigNum.bitLength(pk.h)),
+            bn_r,
+            bn_p
+        );
+        c2 = BigNum.modmul(g_m, h_r, bn_p);
+    }
+
+    /// @notice Decrypts a ciphertext using the private key x.
+    /// @dev This implementation uses a brute-force discrete log search and is only suitable for small primes.
+    /// @param ct The ciphertext to decrypt.
+    /// @param x The private key as bytes.
+    /// @param pk The public key.
+    /// @return m The decrypted plaintext as a uint256.
+    function decrypt(
+        Ciphertext calldata ct,
+        bytes calldata x,
+        PublicKey calldata pk
+    ) external view returns (uint256 m) {
+        // Prepare modulus and private key as BigNumber.
+        BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
+        BigNumber memory bn_x = BigNum.init(x, false);
+
+        // Compute h_r = (c1)^x mod p.
+        BigNumber memory h_r = BigNum.modexp(
+            BigNumber(ct.c1, false, BigNum.bitLength(ct.c1)),
+            bn_x,
+            bn_p
+        );
+        // Compute the inverse of h_r: inv_h_r = h_r^(p-2) mod p.
+        BigNumber memory inv_h_r = BigNum.modexp(
+            h_r,
+            BigNum.sub(bn_p, BigNum.two()),
+            bn_p
+        );
+        // Compute g^m = c2 * inv_h_r mod p.
+        BigNumber memory g_m = BigNum.modmul(
+            BigNumber(ct.c2, false, BigNum.bitLength(ct.c2)),
+            inv_h_r,
+            bn_p
+        );
+
+        // For small primes, we can solve the discrete log by brute force.
+        uint256 p_val = uint256(bytes32(bn_p.val));
+
+        // Get the generator g as a uint256.
+        BigNumber memory bn_g = BigNumber(pk.g, false, BigNum.bitLength(pk.g));
+        uint256 g_val = uint256(bytes32(bn_g.val));
+        uint256 target = uint256(bytes32(g_m.val));
+
+        // Try all exponents from 0 up to p_val-1.
+        for (uint256 i = 0; i < p_val; i++) {
+            if (modExp(g_val, i, p_val) == target) {
+                return i;
+            }
+        }
+        revert('Discrete log not found');
+    }
+
+    /// @notice Helper function to compute (base^exponent) mod modulus for uint256 numbers.
+    function modExp(
+        uint256 base,
+        uint256 exponent,
+        uint256 modulus
+    ) internal pure returns (uint256 result) {
+        result = 1;
+        base = base % modulus;
+        while (exponent > 0) {
+            if (exponent & 1 == 1) {
+                result = mulmod(result, base, modulus);
+            }
+            exponent = exponent >> 1;
+            base = mulmod(base, base, modulus);
+        }
+    }
+
+    /// @notice Helper function to compute the greatest common divisor of two BigNumbers.
     function gcd(
         BigNumber memory a,
         BigNumber memory b
