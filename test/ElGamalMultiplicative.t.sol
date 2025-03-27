@@ -27,7 +27,7 @@ contract ElGamalMultiplicativeTest is Test {
     }
 
     // Test encryption and decryption with small prime
-    function testEncryptDecryptSmallPrime() public {
+    function testEncryptDecryptSmallPrime() public view {
         PublicKey memory pk = PublicKey(smallPrime, g, h);
         bytes memory r = abi.encodePacked(uint256(3));
         uint256 m = 4;
@@ -45,7 +45,7 @@ contract ElGamalMultiplicativeTest is Test {
     }
 
     // Test homomorphic multiplication with small prime
-    function testHomomorphicMultiplicationSmallPrime() public {
+    function testHomomorphicMultiplicationSmallPrime() public view {
         PublicKey memory pk = PublicKey(smallPrime, g, h);
         bytes memory r1 = abi.encodePacked(uint256(3));
         bytes memory r2 = abi.encodePacked(uint256(4));
@@ -73,7 +73,7 @@ contract ElGamalMultiplicativeTest is Test {
         // Decrypt manually: should equal m1 * m2 = 20
     }
 
-    function testHomomorphicDivisionSmallPrime() public {
+    function testHomomorphicDivisionSmallPrime() public view {
         // Set up public key with a small prime (p), generator (g), and public key (h)
         PublicKey memory pk = PublicKey(smallPrime, g, h);
 
@@ -107,7 +107,7 @@ contract ElGamalMultiplicativeTest is Test {
     }
 
     // Test with large prime
-    function testEncryptDecryptLargePrime() public {
+    function testEncryptDecryptLargePrime() public view {
         BigNumber memory bn_g = BigNumber(g, false, BigNum.bitLength(g));
         BigNumber memory bn_x = BigNumber(x, false, BigNum.bitLength(x));
         BigNumber memory bn_p = BigNumber(
@@ -115,9 +115,9 @@ contract ElGamalMultiplicativeTest is Test {
             false,
             BigNum.bitLength(largePrime)
         );
-        h = BigNum.modexp(bn_g, bn_x, bn_p).val;
+        BigNumber memory bn_h = BigNum.modexp(bn_g, bn_x, bn_p);
 
-        PublicKey memory pk = PublicKey(largePrime, g, h);
+        PublicKey memory pk = PublicKey(largePrime, g, bn_h.val);
         bytes memory r = abi.encodePacked(uint256(3));
         uint256 m = 4;
         (BigNumber memory c1, BigNumber memory c2) = elgamal.encrypt(
