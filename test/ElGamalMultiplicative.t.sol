@@ -7,34 +7,49 @@ import '../src/BigNum.sol';
 
 contract ElGamalMultiplicativeTest is Test {
     ElGamalMultiplicative public elgamal;
+
+    // Small prime parameters
     bytes public smallPrime = abi.encodePacked(uint256(23));
+    bytes public xSmall = abi.encodePacked(uint256(10));
+    bytes public g = abi.encodePacked(uint256(2));
+    bytes public hSmall;
+
+    // Large prime parameters
     bytes public largePrime =
         abi.encodePacked(
             uint256(
                 115792089237316195423570985008687907853269984665640564039457584007913129639747
             )
         );
-    bytes public g = abi.encodePacked(uint256(2));
     bytes public x = abi.encodePacked(uint256(12345678901234567890));
-    bytes public hSmall;
     bytes public hLarge;
 
     function setUp() public {
         elgamal = new ElGamalMultiplicative();
-        BigNumber memory bn_g = BigNumber(g, false, BigNum.bitLength(g));
-        BigNumber memory bn_x = BigNumber(x, false, BigNum.bitLength(x));
-        BigNumber memory bn_p_small = BigNumber(
-            smallPrime,
-            false,
-            BigNum.bitLength(smallPrime)
-        );
-        hSmall = BigNum.modexp(bn_g, bn_x, bn_p_small).val;
-        BigNumber memory bn_p_large = BigNumber(
-            largePrime,
-            false,
-            BigNum.bitLength(largePrime)
-        );
-        hLarge = BigNum.modexp(bn_g, bn_x, bn_p_large).val;
+
+        // For small prime, use xSmall.
+        {
+            BigNumber memory bn_g = BigNumber(g, false, BigNum.bitLength(g));
+            BigNumber memory bn_xSmall = BigNum.init(xSmall, false);
+            BigNumber memory bn_p_small = BigNumber(
+                smallPrime,
+                false,
+                BigNum.bitLength(smallPrime)
+            );
+            hSmall = BigNum.modexp(bn_g, bn_xSmall, bn_p_small).val;
+        }
+
+        // For large prime, use x.
+        {
+            BigNumber memory bn_g = BigNumber(g, false, BigNum.bitLength(g));
+            BigNumber memory bn_x = BigNum.init(x, false);
+            BigNumber memory bn_p_large = BigNumber(
+                largePrime,
+                false,
+                BigNum.bitLength(largePrime)
+            );
+            hLarge = BigNum.modexp(bn_g, bn_x, bn_p_large).val;
+        }
     }
 
     function testEncryptDecryptSmallPrime() public {
@@ -46,11 +61,7 @@ contract ElGamalMultiplicativeTest is Test {
         BigNumber memory bn_r = BigNumber(r, false, BigNum.bitLength(r));
         BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
 
-        BigNumber memory bn_m = BigNumber(
-            abi.encodePacked(m),
-            false,
-            BigNum.bitLength(abi.encodePacked(m))
-        );
+        BigNumber memory bn_m = BigNum.init(abi.encodePacked(m), false);
         BigNumber memory h_r = BigNum.modexp(
             BigNumber(pk.h, false, BigNum.bitLength(pk.h)),
             bn_r,
@@ -67,6 +78,38 @@ contract ElGamalMultiplicativeTest is Test {
             c2.val,
             BigNum.modmul(bn_m, h_r, bn_p).val,
             'c2 should be m * h^r mod p'
+        );
+    }
+
+    function testDecryptMultiplicativeSmallPrime() public {
+        // Use the small-prime parameters.
+        PublicKey memory pk = PublicKey(smallPrime, g, hSmall);
+        // Use xSmall for decryption.
+        bytes memory decryptionKey = xSmall;
+        bytes memory r = abi.encodePacked(uint256(3));
+        uint256 m = 4;
+        // Encrypt the message.
+        (BigNumber memory c1, BigNumber memory c2) = elgamal.encrypt(
+            abi.encodePacked(m),
+            r,
+            pk
+        );
+        // Decrypt the ciphertext.
+        BigNumber memory decryptedBN = elgamal.decrypt(
+            Ciphertext(c1.val, c2.val),
+            decryptionKey,
+            pk
+        );
+        // Expected BigNumber for m.
+        BigNumber memory expectedBN = BigNum.init(abi.encodePacked(m), false);
+
+        // Normalize both to 32 bytes.
+        bytes memory actualBytes = padTo32(decryptedBN.val);
+        bytes memory expectedBytes = padTo32(expectedBN.val);
+        assertEq(
+            actualBytes,
+            expectedBytes,
+            'Multiplicative decryption mismatch'
         );
     }
 
@@ -283,5 +326,16 @@ contract ElGamalMultiplicativeTest is Test {
             BigNum.modmul(c2_1, invC2, bn_p).val,
             'newC2 mismatch'
         );
+    }
+
+    function padTo32(
+        bytes memory b
+    ) internal pure returns (bytes memory padded) {
+        if (b.length >= 32) return b;
+        padded = new bytes(32);
+        uint256 offset = 32 - b.length;
+        for (uint256 i = 0; i < b.length; i++) {
+            padded[i + offset] = b[i];
+        }
     }
 }

@@ -7,34 +7,49 @@ import '../src/BigNum.sol';
 
 contract ElGamalAdditiveTest is Test {
     ElGamalAdditive public elgamal;
+
+    // Small prime parameters
     bytes public smallPrime = abi.encodePacked(uint256(23));
+    bytes public xSmall = abi.encodePacked(uint256(10));
+    bytes public g = abi.encodePacked(uint256(2));
+    bytes public hSmall;
+
+    // Large prime parameters
     bytes public largePrime =
         abi.encodePacked(
             uint256(
                 115792089237316195423570985008687907853269984665640564039457584007913129639747
             )
         );
-    bytes public g = abi.encodePacked(uint256(2));
     bytes public x = abi.encodePacked(uint256(12345678901234567890));
-    bytes public hSmall;
     bytes public hLarge;
 
     function setUp() public {
         elgamal = new ElGamalAdditive();
-        BigNumber memory bn_g = BigNumber(g, false, BigNum.bitLength(g));
-        BigNumber memory bn_x = BigNumber(x, false, BigNum.bitLength(x));
-        BigNumber memory bn_p_small = BigNumber(
-            smallPrime,
-            false,
-            BigNum.bitLength(smallPrime)
-        );
-        hSmall = BigNum.modexp(bn_g, bn_x, bn_p_small).val;
-        BigNumber memory bn_p_large = BigNumber(
-            largePrime,
-            false,
-            BigNum.bitLength(largePrime)
-        );
-        hLarge = BigNum.modexp(bn_g, bn_x, bn_p_large).val;
+
+        // For small prime, use xSmall
+        {
+            BigNumber memory bn_g = BigNumber(g, false, BigNum.bitLength(g));
+            BigNumber memory bn_xSmall = BigNum.init(xSmall, false);
+            BigNumber memory bn_p_small = BigNumber(
+                smallPrime,
+                false,
+                BigNum.bitLength(smallPrime)
+            );
+            hSmall = BigNum.modexp(bn_g, bn_xSmall, bn_p_small).val;
+        }
+
+        // For large prime, use x
+        {
+            BigNumber memory bn_g = BigNumber(g, false, BigNum.bitLength(g));
+            BigNumber memory bn_x = BigNum.init(x, false);
+            BigNumber memory bn_p_large = BigNumber(
+                largePrime,
+                false,
+                BigNum.bitLength(largePrime)
+            );
+            hLarge = BigNum.modexp(bn_g, bn_x, bn_p_large).val;
+        }
     }
 
     function testEncryptDecryptSmallPrime() public {
@@ -42,16 +57,11 @@ contract ElGamalAdditiveTest is Test {
         bytes memory r = abi.encodePacked(uint256(3));
         uint256 m = 4;
 
-        // Compute expected values
+        // Compute expected values:
         BigNumber memory bn_g = BigNumber(pk.g, false, BigNum.bitLength(pk.g));
         BigNumber memory bn_r = BigNumber(r, false, BigNum.bitLength(r));
         BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
-
-        BigNumber memory bn_m = BigNumber(
-            abi.encodePacked(m),
-            false,
-            BigNum.bitLength(abi.encodePacked(m))
-        );
+        BigNumber memory bn_m = BigNum.init(abi.encodePacked(m), false);
         BigNumber memory g_m = BigNum.modexp(bn_g, bn_m, bn_p);
         BigNumber memory h_r = BigNum.modexp(
             BigNumber(pk.h, false, BigNum.bitLength(pk.h)),
@@ -104,6 +114,26 @@ contract ElGamalAdditiveTest is Test {
             BigNum.modmul(g_m, h_r, bn_p).val,
             'c2 should be g^m * h^r mod p'
         );
+    }
+
+    function testDecryptAdditiveSmallPrime() public {
+        PublicKey memory pk = PublicKey(smallPrime, g, hSmall);
+        bytes memory decryptionKey = xSmall;
+        bytes memory r = abi.encodePacked(uint256(3));
+        uint256 m = 4;
+
+        (BigNumber memory c1, BigNumber memory c2) = elgamal.encrypt(
+            abi.encodePacked(m),
+            r,
+            pk
+        );
+
+        uint256 decrypted = elgamal.decrypt(
+            Ciphertext(c1.val, c2.val),
+            decryptionKey,
+            pk
+        );
+        assertEq(decrypted, m, 'Additive decryption did not recover m');
     }
 
     function testHomomorphicAdditionSmallPrime() public {
