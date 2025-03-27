@@ -66,6 +66,15 @@ contract ElGamalMultiplicative {
         Ciphertext calldata ct2,
         PublicKey calldata pk
     ) external view returns (BigNumber memory newC1, BigNumber memory newC2) {
+        require(
+            !BigNum.isZero(BigNumber(ct2.c1, false, BigNum.bitLength(ct2.c1))),
+            'Cannot divide by zero ciphertext c1'
+        );
+        require(
+            !BigNum.isZero(BigNumber(ct2.c2, false, BigNum.bitLength(ct2.c2))),
+            'Cannot divide by zero ciphertext c2'
+        );
+
         // Compute inverse of ct2.c1: (c1')^{p-2} mod p
         BigNumber memory invC1 = BigNum.modexp(
             BigNumber(ct2.c1, false, BigNum.bitLength(ct2.c1)),
@@ -109,16 +118,12 @@ contract ElGamalMultiplicative {
     /// @return c1 The first component of the encrypted ciphertext
     /// @return c2 The second component of the encrypted ciphertext
     function encrypt(
-        uint256 m,
+        bytes memory m,
         bytes memory r,
         PublicKey calldata pk
     ) external view returns (BigNumber memory c1, BigNumber memory c2) {
         BigNumber memory bn_r = BigNumber(r, false, BigNum.bitLength(r));
-        BigNumber memory bn_m = BigNumber(
-            abi.encodePacked(m),
-            false,
-            BigNum.bitLength(m)
-        );
+        BigNumber memory bn_m = BigNumber(m, false, BigNum.bitLength(m));
 
         // c1 = g^r mod p
         c1 = BigNum.modexp(

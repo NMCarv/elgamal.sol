@@ -31,18 +31,14 @@ contract ElGamalAdditive {
     /// @return c1 The encrypted ciphertext first component
     /// @return c2 The encrypted ciphertext second component
     function encrypt(
-        uint256 m,
+        bytes memory m,
         bytes memory r,
         PublicKey calldata pk
     ) external view returns (BigNumber memory c1, BigNumber memory c2) {
         BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
 
         BigNumber memory bn_r = BigNumber(r, false, BigNum.bitLength(r));
-        BigNumber memory bn_m = BigNumber(
-            abi.encodePacked(m),
-            false,
-            BigNum.bitLength(m)
-        );
+        BigNumber memory bn_m = BigNumber(m, false, BigNum.bitLength(m));
 
         // c1 = g^r mod p
         c1 = BigNum.modexp(
@@ -103,6 +99,15 @@ contract ElGamalAdditive {
         Ciphertext calldata ct2,
         PublicKey calldata pk
     ) external view returns (BigNumber memory newC1, BigNumber memory newC2) {
+        require(
+            !BigNum.isZero(BigNumber(ct2.c1, false, BigNum.bitLength(ct2.c1))),
+            'Cannot subtract zero ciphertext c1'
+        );
+        require(
+            !BigNum.isZero(BigNumber(ct2.c2, false, BigNum.bitLength(ct2.c2))),
+            'Cannot subtract zero ciphertext c2'
+        );
+
         BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
 
         // Compute inverse of ct2.c1 and ct2.c2 modulo p
@@ -180,6 +185,13 @@ contract ElGamalAdditive {
             BigNumber(pk.p, false, BigNum.bitLength(pk.p)),
             BigNum.one()
         );
+
+        // Ensure divisor is coprime with (p-1)
+        require(
+            gcd(bn_k, p_minus_one).eq(BigNum.one()),
+            'k must be coprime with p-1'
+        );
+
         BigNumber memory inv_k = BigNum.modexp(
             bn_k,
             BigNum.sub(p_minus_one, BigNum.one()),
@@ -199,5 +211,17 @@ contract ElGamalAdditive {
             inv_k,
             BigNumber(pk.p, false, BigNum.bitLength(pk.p))
         );
+    }
+
+    function gcd(
+        BigNumber memory a,
+        BigNumber memory b
+    ) internal view returns (BigNumber memory) {
+        while (!b.isZero()) {
+            BigNumber memory temp = b;
+            b = BigNum.mod(a, b);
+            a = temp;
+        }
+        return a;
     }
 }
