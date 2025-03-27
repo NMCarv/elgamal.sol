@@ -150,19 +150,20 @@ contract ElGamalAdditive {
         PublicKey calldata pk
     ) external view returns (BigNumber memory newC1, BigNumber memory newC2) {
         BigNumber memory bn_k = BigNum.init(k, false);
+        BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
 
         // Compute newC1 = c1^k mod p
         newC1 = BigNum.modexp(
             BigNumber(ct.c1, false, BigNum.bitLength(ct.c1)),
             bn_k,
-            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+            bn_p
         );
 
         // Compute newC2 = c2^k mod p
         newC2 = BigNum.modexp(
             BigNumber(ct.c2, false, BigNum.bitLength(ct.c2)),
             bn_k,
-            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+            bn_p
         );
     }
 
@@ -179,12 +180,10 @@ contract ElGamalAdditive {
         PublicKey calldata pk
     ) external view returns (BigNumber memory newC1, BigNumber memory newC2) {
         BigNumber memory bn_k = BigNum.init(k, false);
+        BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
 
         // Compute k^{-1} mod (p-1)
-        BigNumber memory p_minus_one = BigNum.sub(
-            BigNumber(pk.p, false, BigNum.bitLength(pk.p)),
-            BigNum.one()
-        );
+        BigNumber memory p_minus_one = BigNum.sub(bn_p, BigNum.one());
 
         // Ensure divisor is coprime with (p-1)
         require(
@@ -202,14 +201,14 @@ contract ElGamalAdditive {
         newC1 = BigNum.modexp(
             BigNumber(ct.c1, false, BigNum.bitLength(ct.c1)),
             inv_k,
-            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+            bn_p
         );
 
         // Compute newC2 = c2^{inv_k} mod p
         newC2 = BigNum.modexp(
             BigNumber(ct.c2, false, BigNum.bitLength(ct.c2)),
             inv_k,
-            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+            bn_p
         );
     }
 

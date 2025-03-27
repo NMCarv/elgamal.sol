@@ -41,17 +41,17 @@ contract ElGamalMultiplicative {
         Ciphertext calldata ct2,
         PublicKey calldata pk
     ) external view returns (BigNumber memory newC1, BigNumber memory newC2) {
-        BigNumber memory enc_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
+        BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
 
         newC1 = BigNum.modmul(
             BigNumber(ct1.c1, false, BigNum.bitLength(ct1.c1)),
             BigNumber(ct2.c1, false, BigNum.bitLength(ct2.c1)),
-            enc_p
+            bn_p
         );
         newC2 = BigNum.modmul(
             BigNumber(ct1.c2, false, BigNum.bitLength(ct1.c2)),
             BigNumber(ct2.c2, false, BigNum.bitLength(ct2.c2)),
-            enc_p
+            bn_p
         );
     }
 
@@ -75,38 +75,39 @@ contract ElGamalMultiplicative {
             'Cannot divide by zero ciphertext c2'
         );
 
+        BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
+        BigNumber memory bn_2 = BigNumber(
+            abi.encodePacked(uint256(2)),
+            false,
+            BigNum.bitLength(abi.encodePacked(uint256(2)))
+        );
+
         // Compute inverse of ct2.c1: (c1')^{p-2} mod p
         BigNumber memory invC1 = BigNum.modexp(
             BigNumber(ct2.c1, false, BigNum.bitLength(ct2.c1)),
-            BigNum.sub(
-                BigNumber(pk.p, false, BigNum.bitLength(pk.p)),
-                BigNum.init(abi.encodePacked(uint256(2)), false)
-            ),
-            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+            BigNum.sub(bn_p, bn_2),
+            bn_p
         );
 
         // Compute inverse of ct2.c2: (c2')^{p-2} mod p
         BigNumber memory invC2 = BigNum.modexp(
             BigNumber(ct2.c2, false, BigNum.bitLength(ct2.c2)),
-            BigNum.sub(
-                BigNumber(pk.p, false, BigNum.bitLength(pk.p)),
-                BigNum.init(abi.encodePacked(uint256(2)), false)
-            ),
-            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+            BigNum.sub(bn_p, bn_2),
+            bn_p
         );
 
         // Compute newC1 = c1 * (c1')^{-1} mod p
         newC1 = BigNum.modmul(
             BigNumber(ct1.c1, false, BigNum.bitLength(ct1.c1)),
             invC1,
-            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+            bn_p
         );
 
         // Compute newC2 = c2 * (c2')^{-1} mod p
         newC2 = BigNum.modmul(
             BigNumber(ct1.c2, false, BigNum.bitLength(ct1.c2)),
             invC2,
-            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+            bn_p
         );
     }
 
@@ -123,25 +124,21 @@ contract ElGamalMultiplicative {
         PublicKey calldata pk
     ) external view returns (BigNumber memory c1, BigNumber memory c2) {
         BigNumber memory bn_r = BigNumber(r, false, BigNum.bitLength(r));
-        BigNumber memory bn_m = BigNumber(m, false, BigNum.bitLength(m));
+        BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
 
         // c1 = g^r mod p
         c1 = BigNum.modexp(
             BigNumber(pk.g, false, BigNum.bitLength(pk.g)),
             bn_r,
-            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+            bn_p
         );
 
         // c2 = m * h^r mod p
         BigNumber memory h_r = BigNum.modexp(
             BigNumber(pk.h, false, BigNum.bitLength(pk.h)),
             bn_r,
-            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+            bn_p
         );
-        c2 = BigNum.modmul(
-            bn_m,
-            h_r,
-            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
-        );
+        c2 = BigNum.modmul(BigNumber(m, false, BigNum.bitLength(m)), h_r, bn_p);
     }
 }
