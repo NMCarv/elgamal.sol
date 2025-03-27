@@ -1,122 +1,142 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
-/// @title ElGamal Multiplicative Homomorphic Encryption
-/// @dev Supports multiplicative homomorphism with scalar addition/subtraction
+import './BigNum.sol';
+
+/// @title Ciphertext Struct
+/// @notice Represents a multiplicative ElGamal ciphertext with two components (c1, c2)
+struct Ciphertext {
+    bytes c1; // g^r mod p
+    bytes c2; // m * h^r mod p
+}
+
+/// @title PublicKey Struct
+/// @notice Represents an ElGamal public key
+struct PublicKey {
+    bytes p; // Prime modulus
+    bytes g; // Generator
+    bytes h; // Public key (g^x mod p)
+}
+
+/// @title ElGamal Multiplicative Cryptosystem Implementation
+/// @notice Provides homomorphic operations for multiplicative ElGamal
+/// @dev Uses BigNum library for large number operations
 contract ElGamalMultiplicative {
-    struct Ciphertext {
-        uint256 c1; // g^r mod p
-        uint256 c2; // (m * h^r) mod p
-    }
+    using BigNum for *;
 
-    uint256 public immutable p;
-    uint256 public immutable g;
-    uint256 public immutable h;
-    address public immutable owner;
+    /// @notice Event emitted after a homomorphic operation
+    /// @param c1 The first component of the resulting ciphertext
+    /// @param c2 The second component of the resulting ciphertext
+    event OperationResult(bytes c1, bytes c2);
 
-    mapping(address => Ciphertext) public encryptedBalances;
+    /// @notice Multiplies two encrypted values homomorphically
+    /// @dev For multiplicative ElGamal: (c1, c2) * (c1', c2') = (c1 * c1' mod p, c2 * c2' mod p)
+    /// @param ct1 First ciphertext
+    /// @param ct2 Second ciphertext
+    /// @param pk Public key
+    /// @return newC1 The first component of the resulting ciphertext
+    /// @return newC2 The second component of the resulting ciphertext
+    function homomorphicMultiplication(
+        Ciphertext calldata ct1,
+        Ciphertext calldata ct2,
+        PublicKey calldata pk
+    ) external view returns (BigNumber memory newC1, BigNumber memory newC2) {
+        BigNumber memory enc_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
 
-    event EncryptedValueStored(address indexed user, uint256 c1, uint256 c2);
-    event HomomorphicMultiplication(
-        address indexed user,
-        uint256 c1,
-        uint256 c2
-    );
-    event HomomorphicDivision(address indexed user, uint256 c1, uint256 c2);
-    event ScalarExponentiation(address indexed user, uint256 c1, uint256 c2);
-
-    modifier onlyOwner() {
-        require(msg.sender == owner, 'Not authorized');
-        _;
-    }
-
-    constructor(uint256 _p, uint256 _g, uint256 _h) {
-        require(_p > 0 && _g > 0 && _h > 0, 'Invalid parameters');
-        p = _p;
-        g = _g;
-        h = _h;
-        owner = msg.sender;
-    }
-
-    function storeEncryptedValue(uint256 c1, uint256 c2) external {
-        require(c1 > 0 && c2 > 0, 'Invalid ciphertext');
-        encryptedBalances[msg.sender] = Ciphertext(c1, c2);
-        emit EncryptedValueStored(msg.sender, c1, c2);
-    }
-
-    /// @notice Get encrypted balance for a user
-    function getEncryptedBalance(
-        address user
-    ) external view returns (uint256, uint256) {
-        Ciphertext memory ct = encryptedBalances[user];
-        return (ct.c1, ct.c2);
-    }
-
-    /// @notice Scalar Exponentiation: (c1^scalar, c2^scalar)
-    function scalarExponentiation(address user, uint256 scalar) external {
-        Ciphertext memory ct = encryptedBalances[user];
-        require(ct.c1 != 0 && ct.c2 != 0, 'User has no encrypted value');
-
-        uint256 newC1 = modExp(ct.c1, scalar, p);
-        uint256 newC2 = modExp(ct.c2, scalar, p);
-
-        encryptedBalances[msg.sender] = Ciphertext(newC1, newC2);
-        emit ScalarExponentiation(msg.sender, newC1, newC2);
-    }
-
-    /// @notice Homomorphic Multiplication: (c1 * c1', c2 * c2')
-    function homomorphicMultiplication(address user1, address user2) external {
-        Ciphertext memory ct1 = encryptedBalances[user1];
-        Ciphertext memory ct2 = encryptedBalances[user2];
-        require(ct1.c1 != 0 && ct1.c2 != 0, 'User1 has no value');
-        require(ct2.c1 != 0 && ct2.c2 != 0, 'User2 has no value');
-        uint256 newC1 = (ct1.c1 * ct2.c1) % p;
-        uint256 newC2 = (ct1.c2 * ct2.c2) % p;
-        encryptedBalances[msg.sender] = Ciphertext(newC1, newC2);
-        emit HomomorphicMultiplication(msg.sender, newC1, newC2);
-    }
-
-    /// @notice Homomorphic Division: (c1^(1/scalar), c2^(1/scalar))
-    function homomorphicDivision(address user, uint256 scalar) external {
-        Ciphertext memory ct = encryptedBalances[user];
-        require(ct.c1 != 0 && ct.c2 != 0, 'User has no encrypted value');
-
-        uint256 scalarInv = modInverse(scalar, p - 1);
-        uint256 newC1 = modExp(ct.c1, scalarInv, p);
-        uint256 newC2 = modExp(ct.c2, scalarInv, p);
-
-        encryptedBalances[msg.sender] = Ciphertext(newC1, newC2);
-        emit HomomorphicDivision(msg.sender, newC1, newC2);
-    }
-
-    function modExp(
-        uint256 base,
-        uint256 exp,
-        uint256 mod
-    ) internal view returns (uint256) {
-        (bool success, bytes memory result) = address(0x05).staticcall(
-            abi.encode(base, exp, mod)
+        newC1 = BigNum.modmul(
+            BigNumber(ct1.c1, false, BigNum.bitLength(ct1.c1)),
+            BigNumber(ct2.c1, false, BigNum.bitLength(ct2.c1)),
+            enc_p
         );
-        require(success, 'ModExp failed');
-        return abi.decode(result, (uint256));
+        newC2 = BigNum.modmul(
+            BigNumber(ct1.c2, false, BigNum.bitLength(ct1.c2)),
+            BigNumber(ct2.c2, false, BigNum.bitLength(ct2.c2)),
+            enc_p
+        );
     }
 
-    function modInverse(
-        uint256 a,
-        uint256 mod
-    ) internal pure returns (uint256) {
-        int256 t = 0;
-        int256 newT = 1;
-        int256 r = int256(mod);
-        int256 newR = int256(a);
+    /// @notice Divides one encrypted value by another homomorphically
+    /// @param ct1 Numerator ciphertext (c1, c2)
+    /// @param ct2 Denominator ciphertext (c1', c2')
+    /// @param pk Public key (p, g, h)
+    /// @return newC1 The first component of the resulting ciphertext
+    /// @return newC2 The second component of the resulting ciphertext
+    function homomorphicDivision(
+        Ciphertext calldata ct1,
+        Ciphertext calldata ct2,
+        PublicKey calldata pk
+    ) external view returns (BigNumber memory newC1, BigNumber memory newC2) {
+        // Compute inverse of ct2.c1: (c1')^{p-2} mod p
+        BigNumber memory invC1 = BigNum.modexp(
+            BigNumber(ct2.c1, false, BigNum.bitLength(ct2.c1)),
+            BigNum.sub(
+                BigNumber(pk.p, false, BigNum.bitLength(pk.p)),
+                BigNum.init(abi.encodePacked(uint256(2)), false)
+            ),
+            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+        );
 
-        while (newR != 0) {
-            int256 quotient = r / newR;
-            (t, newT) = (newT, t - quotient * newT);
-            (r, newR) = (newR, r - quotient * newR);
-        }
+        // Compute inverse of ct2.c2: (c2')^{p-2} mod p
+        BigNumber memory invC2 = BigNum.modexp(
+            BigNumber(ct2.c2, false, BigNum.bitLength(ct2.c2)),
+            BigNum.sub(
+                BigNumber(pk.p, false, BigNum.bitLength(pk.p)),
+                BigNum.init(abi.encodePacked(uint256(2)), false)
+            ),
+            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+        );
 
-        require(r == 1, 'No modular inverse');
-        return uint256(t < 0 ? t + int256(mod) : t);
+        // Compute newC1 = c1 * (c1')^{-1} mod p
+        newC1 = BigNum.modmul(
+            BigNumber(ct1.c1, false, BigNum.bitLength(ct1.c1)),
+            invC1,
+            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+        );
+
+        // Compute newC2 = c2 * (c2')^{-1} mod p
+        newC2 = BigNum.modmul(
+            BigNumber(ct1.c2, false, BigNum.bitLength(ct1.c2)),
+            invC2,
+            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+        );
+    }
+
+    /// @notice Encrypts a plaintext value using the public key
+    /// @dev Computes c1 = g^r mod p, c2 = m * h^r mod p
+    /// @param m Plaintext value to encrypt
+    /// @param r Randomness as bytes
+    /// @param pk Public key
+    /// @return c1 The first component of the encrypted ciphertext
+    /// @return c2 The second component of the encrypted ciphertext
+    function encrypt(
+        uint256 m,
+        bytes memory r,
+        PublicKey calldata pk
+    ) external view returns (BigNumber memory c1, BigNumber memory c2) {
+        BigNumber memory bn_r = BigNumber(r, false, BigNum.bitLength(r));
+        BigNumber memory bn_m = BigNumber(
+            abi.encodePacked(m),
+            false,
+            BigNum.bitLength(m)
+        );
+
+        // c1 = g^r mod p
+        c1 = BigNum.modexp(
+            BigNumber(pk.g, false, BigNum.bitLength(pk.g)),
+            bn_r,
+            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+        );
+
+        // c2 = m * h^r mod p
+        BigNumber memory h_r = BigNum.modexp(
+            BigNumber(pk.h, false, BigNum.bitLength(pk.h)),
+            bn_r,
+            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+        );
+        c2 = BigNum.modmul(
+            bn_m,
+            h_r,
+            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+        );
     }
 }

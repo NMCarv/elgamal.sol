@@ -1,176 +1,203 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
+
+import './BigNum.sol';
+
+/// @title Ciphertext Struct
+/// @notice Represents a multiplicative ElGamal ciphertext with two components (c1, c2)
+struct Ciphertext {
+    bytes c1; // g^r mod p
+    bytes c2; // m * h^r mod p
+}
+
+/// @title PublicKey Struct
+/// @notice Represents an ElGamal public key
+struct PublicKey {
+    bytes p; // Prime modulus
+    bytes g; // Generator
+    bytes h; // Public key (g^x mod p)
+}
 
 /// @title ElGamal Additive Homomorphic Encryption
 /// @dev Supports additive homomorphism with scalar multiplication/division
 contract ElGamalAdditive {
-    struct Ciphertext {
-        uint256 c1; // g^r mod p
-        uint256 c2; // (g^m * h^r) mod p
-    }
+    using BigNum for *;
 
-    uint256 public immutable p;
-    uint256 public immutable g;
-    uint256 public immutable h;
-    address public immutable owner;
+    /// @notice Encrypts a plaintext value using the public key
+    /// @dev Computes c1 = g^r mod p, c2 = g^m * h^r mod p
+    /// @param m Plaintext value to encrypt
+    /// @param r Randomness as bytes
+    /// @param pk Public key
+    /// @return c1 The encrypted ciphertext first component
+    /// @return c2 The encrypted ciphertext second component
+    function encrypt(
+        uint256 m,
+        bytes memory r,
+        PublicKey calldata pk
+    ) external view returns (BigNumber memory c1, BigNumber memory c2) {
+        BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
 
-    mapping(address => Ciphertext) public encryptedBalances;
-
-    event EncryptedValueStored(address indexed user, uint256 c1, uint256 c2);
-    event HomomorphicAddition(address indexed user, uint256 c1, uint256 c2);
-    event HomomorphicSubtraction(address indexed user, uint256 c1, uint256 c2);
-    event ScalarMultiplication(address indexed user, uint256 c1, uint256 c2);
-    event ScalarDivision(address indexed user, uint256 c1, uint256 c2);
-
-    constructor(uint256 _p, uint256 _g, uint256 _h) {
-        require(_p > 0 && _g > 0 && _h > 0, 'Invalid parameters');
-        p = _p;
-        g = _g;
-        h = _h;
-        owner = msg.sender;
-    }
-
-    function storeEncryptedValue(uint256 c1, uint256 c2) external {
-        require(c1 > 0 && c2 > 0, 'Invalid ciphertext');
-        encryptedBalances[msg.sender] = Ciphertext(c1, c2);
-        emit EncryptedValueStored(msg.sender, c1, c2);
-    }
-
-    /// @notice Get encrypted balance for a user
-    function getEncryptedBalance(
-        address user
-    ) external view returns (uint256, uint256) {
-        Ciphertext memory ct = encryptedBalances[user];
-        return (ct.c1, ct.c2);
-    }
-
-    function homomorphicAddition(address user1, address user2) external {
-        Ciphertext memory ct1 = encryptedBalances[user1];
-        Ciphertext memory ct2 = encryptedBalances[user2];
-
-        require(ct1.c1 != 0 && ct1.c2 != 0, 'User1 has no encrypted value');
-        require(ct2.c1 != 0 && ct2.c2 != 0, 'User2 has no encrypted value');
-
-        uint256 newC1 = (ct1.c1 * ct2.c1) % p;
-        uint256 newC2 = (ct1.c2 * ct2.c2) % p;
-        encryptedBalances[msg.sender] = Ciphertext(newC1, newC2);
-        emit HomomorphicAddition(msg.sender, newC1, newC2);
-    }
-
-    /// @notice Homomorphic Subtraction: (c1 / c1') % p, (c2 / c2') % p
-    function homomorphicSubtraction(address user1, address user2) external {
-        Ciphertext memory ct1 = encryptedBalances[user1];
-        Ciphertext memory ct2 = encryptedBalances[user2];
-
-        require(ct1.c1 != 0 && ct1.c2 != 0, 'User1 has no encrypted value');
-        require(ct2.c1 != 0 && ct2.c2 != 0, 'User2 has no encrypted value');
-
-        // Compute modular inverse of c1' and c2'
-        uint256 invC1 = modInverse(ct2.c1, p);
-        uint256 invC2 = modInverse(ct2.c2, p);
-
-        uint256 newC1 = (ct1.c1 * invC1) % p;
-        uint256 newC2 = (ct1.c2 * invC2) % p;
-
-        encryptedBalances[msg.sender] = Ciphertext(newC1, newC2);
-        emit HomomorphicSubtraction(msg.sender, newC1, newC2);
-    }
-
-    /// @notice Mixes multiplication and addition: (C_1^k * C_2) % p
-    function scalarMultiply(
-        address user1,
-        uint256 multiplier,
-        address user2
-    ) external {
-        Ciphertext memory ct1 = encryptedBalances[user1];
-        Ciphertext memory ct2 = encryptedBalances[user2];
-
-        require(ct1.c1 != 0 && ct1.c2 != 0, 'User1 has no encrypted value');
-        require(ct2.c1 != 0 && ct2.c2 != 0, 'User2 has no encrypted value');
-        require(multiplier > 0, 'Multiplier must be nonzero');
-
-        uint256 scaledC1 = modExp(ct1.c1, multiplier, p);
-        uint256 scaledC2 = modExp(ct1.c2, multiplier, p);
-
-        uint256 newC1 = (scaledC1 * ct2.c1) % p;
-        uint256 newC2 = (scaledC2 * ct2.c2) % p;
-
-        encryptedBalances[msg.sender] = Ciphertext(newC1, newC2);
-        emit ScalarMultiplication(msg.sender, newC1, newC2);
-    }
-
-    /// @notice Mixes multiplication, addition, and scalar division
-    /// @dev Computes (C_1^k * C_2)^(1/d) mod p
-    function scalarDivide(
-        address user1,
-        uint256 multiplier,
-        address user2,
-        uint256 divisor
-    ) external {
-        Ciphertext memory ct1 = encryptedBalances[user1];
-        Ciphertext memory ct2 = encryptedBalances[user2];
-
-        require(ct1.c1 != 0 && ct1.c2 != 0, 'User1 has no encrypted value');
-        require(ct2.c1 != 0 && ct2.c2 != 0, 'User2 has no encrypted value');
-        require(multiplier > 0, 'Multiplier must be nonzero');
-        require(divisor > 0, 'Divisor must be nonzero');
-
-        // Ensure divisor is coprime with (p-1)
-        require(gcd(divisor, p - 1) == 1, 'Divisor must be coprime with (p-1)');
-
-        uint256 scaledC1 = modExp(ct1.c1, multiplier, p);
-        uint256 scaledC2 = modExp(ct1.c2, multiplier, p);
-
-        uint256 addedC1 = (scaledC1 * ct2.c1) % p;
-        uint256 addedC2 = (scaledC2 * ct2.c2) % p;
-
-        uint256 divisorInv = modInverse(divisor, p - 1);
-        uint256 newC1 = modExp(addedC1, divisorInv, p);
-        uint256 newC2 = modExp(addedC2, divisorInv, p);
-
-        encryptedBalances[msg.sender] = Ciphertext(newC1, newC2);
-        emit ScalarDivision(msg.sender, newC1, newC2);
-    }
-
-    /// @notice Compute Greatest Common Divisor (GCD) using Euclidean algorithm
-    function gcd(uint256 a, uint256 b) internal pure returns (uint256) {
-        while (b != 0) {
-            uint256 temp = b;
-            b = a % b;
-            a = temp;
-        }
-        return a;
-    }
-
-    function modExp(
-        uint256 base,
-        uint256 exp,
-        uint256 mod
-    ) internal view returns (uint256) {
-        (bool success, bytes memory result) = address(0x05).staticcall(
-            abi.encode(base, exp, mod)
+        BigNumber memory bn_r = BigNumber(r, false, BigNum.bitLength(r));
+        BigNumber memory bn_m = BigNumber(
+            abi.encodePacked(m),
+            false,
+            BigNum.bitLength(m)
         );
-        require(success, 'ModExp failed');
-        return abi.decode(result, (uint256));
+
+        // c1 = g^r mod p
+        c1 = BigNum.modexp(
+            BigNumber(pk.g, false, BigNum.bitLength(pk.g)),
+            bn_r,
+            bn_p
+        );
+
+        // c2 = g^m * h^r mod p
+        BigNumber memory g_m = BigNum.modexp(
+            BigNumber(pk.g, false, BigNum.bitLength(pk.g)),
+            bn_m,
+            bn_p
+        );
+        BigNumber memory h_r = BigNum.modexp(
+            BigNumber(pk.h, false, BigNum.bitLength(pk.h)),
+            bn_r,
+            bn_p
+        );
+        c2 = BigNum.modmul(g_m, h_r, bn_p);
     }
 
-    /// @notice Computes modular inverse using extended Euclidean algorithm
-    function modInverse(
-        uint256 a,
-        uint256 mod
-    ) internal pure returns (uint256) {
-        int256 t = 0;
-        int256 newT = 1;
-        int256 r = int256(mod);
-        int256 newR = int256(a);
+    /// @notice Adds two encrypted values homomorphically
+    /// @dev For additive ElGamal: (c1, c2) + (c1', c2') = (c1 * c1' mod p, c2 * c2' mod p)
+    /// @param ct1 First ciphertext
+    /// @param ct2 Second ciphertext
+    /// @param pk Public key
+    /// @return newC1 The resulting ciphertext first component
+    /// @return newC2 The resulting ciphertext second component
+    function homomorphicAddition(
+        Ciphertext calldata ct1,
+        Ciphertext calldata ct2,
+        PublicKey calldata pk
+    ) external view returns (BigNumber memory newC1, BigNumber memory newC2) {
+        BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
 
-        while (newR != 0) {
-            int256 quotient = r / newR;
-            (t, newT) = (newT, t - quotient * newT);
-            (r, newR) = (newR, r - quotient * newR);
-        }
+        newC1 = BigNum.modmul(
+            BigNumber(ct1.c1, false, BigNum.bitLength(ct1.c1)),
+            BigNumber(ct2.c1, false, BigNum.bitLength(ct2.c1)),
+            bn_p
+        );
+        newC2 = BigNum.modmul(
+            BigNumber(ct1.c2, false, BigNum.bitLength(ct1.c2)),
+            BigNumber(ct2.c2, false, BigNum.bitLength(ct2.c2)),
+            bn_p
+        );
+    }
 
-        require(r == 1, 'No modular inverse');
-        return uint256(t < 0 ? t + int256(mod) : t);
+    /// @notice Subtracts one encrypted value from another homomorphically
+    /// @dev For additive ElGamal: (c1, c2) - (c1', c2') = (c1 / c1' mod p, c2 / c2' mod p)
+    /// @param ct1 First ciphertext (minuend)
+    /// @param ct2 Second ciphertext (subtrahend)
+    /// @param pk Public key
+    /// @return newC1 The resulting ciphertext first component
+    /// @return newC2 The resulting ciphertext second component
+    function homomorphicSubtraction(
+        Ciphertext calldata ct1,
+        Ciphertext calldata ct2,
+        PublicKey calldata pk
+    ) external view returns (BigNumber memory newC1, BigNumber memory newC2) {
+        BigNumber memory bn_p = BigNumber(pk.p, false, BigNum.bitLength(pk.p));
+
+        // Compute inverse of ct2.c1 and ct2.c2 modulo p
+        BigNumber memory invC1 = BigNum.modexp(
+            BigNumber(ct2.c1, false, BigNum.bitLength(ct2.c1)),
+            BigNum.sub(bn_p, BigNum.one()),
+            bn_p
+        );
+        BigNumber memory invC2 = BigNum.modexp(
+            BigNumber(ct2.c2, false, BigNum.bitLength(ct2.c2)),
+            BigNum.sub(bn_p, BigNum.one()),
+            bn_p
+        );
+
+        // Compute newC1 = c1 * invC1' mod p
+        newC1 = BigNum.modmul(
+            BigNumber(ct1.c1, false, BigNum.bitLength(ct1.c1)),
+            invC1,
+            bn_p
+        );
+
+        // Compute newC2 = c2 * invC2' mod p
+        newC2 = BigNum.modmul(
+            BigNumber(ct1.c2, false, BigNum.bitLength(ct1.c2)),
+            invC2,
+            bn_p
+        );
+    }
+
+    /// @notice Multiplies an encrypted value by a scalar
+    /// @dev For additive ElGamal: k * (c1, c2) = (c1^k mod p, c2^k mod p)
+    /// @param ct Ciphertext to scale
+    /// @param k Scalar multiplier (as bytes)
+    /// @param pk Public key
+    /// @return newC1 The resulting ciphertext first component
+    /// @return newC2 The resulting ciphertext second component
+    function scalarMultiply(
+        Ciphertext calldata ct,
+        bytes memory k,
+        PublicKey calldata pk
+    ) external view returns (BigNumber memory newC1, BigNumber memory newC2) {
+        BigNumber memory bn_k = BigNum.init(k, false);
+
+        // Compute newC1 = c1^k mod p
+        newC1 = BigNum.modexp(
+            BigNumber(ct.c1, false, BigNum.bitLength(ct.c1)),
+            bn_k,
+            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+        );
+
+        // Compute newC2 = c2^k mod p
+        newC2 = BigNum.modexp(
+            BigNumber(ct.c2, false, BigNum.bitLength(ct.c2)),
+            bn_k,
+            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+        );
+    }
+
+    /// @notice Divides an encrypted value by a scalar (approximate)
+    /// @dev Computes ct^{1/k} which requires k^{-1} mod (p-1)
+    /// @param ct Ciphertext to divide
+    /// @param k Scalar divisor (as bytes)
+    /// @param pk Public key
+    /// @return newC1 The resulting ciphertext first component
+    /// @return newC2 The resulting ciphertext second component
+    function scalarDivide(
+        Ciphertext calldata ct,
+        bytes memory k,
+        PublicKey calldata pk
+    ) external view returns (BigNumber memory newC1, BigNumber memory newC2) {
+        BigNumber memory bn_k = BigNum.init(k, false);
+
+        // Compute k^{-1} mod (p-1)
+        BigNumber memory p_minus_one = BigNum.sub(
+            BigNumber(pk.p, false, BigNum.bitLength(pk.p)),
+            BigNum.one()
+        );
+        BigNumber memory inv_k = BigNum.modexp(
+            bn_k,
+            BigNum.sub(p_minus_one, BigNum.one()),
+            p_minus_one
+        );
+
+        // Compute newC1 = c1^{inv_k} mod p
+        newC1 = BigNum.modexp(
+            BigNumber(ct.c1, false, BigNum.bitLength(ct.c1)),
+            inv_k,
+            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+        );
+
+        // Compute newC2 = c2^{inv_k} mod p
+        newC2 = BigNum.modexp(
+            BigNumber(ct.c2, false, BigNum.bitLength(ct.c2)),
+            inv_k,
+            BigNumber(pk.p, false, BigNum.bitLength(pk.p))
+        );
     }
 }
